@@ -1,0 +1,99 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Node / Vite
+node_modules/
+dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.vite/
+
+# Testing & Coverage
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# Type Checking & Linting
+.mypy_cache/
+.pytype/
+.ruff_cache/
+
+# Local AI Models & Weights
+models/
+*.bin
+*.pt
+*.safetensors
+*.onnx
+*.gguf
+*.llamafile
+
+# Transaction Data & Uploads (Privacy: User financial data must never be committed)
+data/uploads/
+data/user/
+data/temp/
+*.private.csv
+
+# Default ignore for general CSV files in data, with explicit exceptions for synthetic demo datasets
+data/*.csv
+!data/*synthetic*.csv
+!data/*demo*.csv
+!data/*sample*.csv
+!data/test_*.csv
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+Thumbs.db
+[Dd]esktop.ini
+.DS_Store

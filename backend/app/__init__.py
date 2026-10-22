@@ -1,0 +1,1 @@
+"""SlothAudit backend application package."""
