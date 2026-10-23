@@ -1,0 +1,14 @@
+# SlothAudit backend runtime and development dependencies
+# Generated from: backend/.venv pip freeze (Python 3.11)
+# Install with: pip install -r backend/requirements.txt
+
+# --- Runtime ---
+fastapi==0.159.1
+uvicorn==0.54.0
+pandas==3.0.6
+pydantic==2.14.1
+python-multipart==0.0.20
+
+# --- Testing ---
+pytest==9.1.1
+httpx==0.28.1
