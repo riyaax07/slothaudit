@@ -256,7 +256,8 @@ export default function App() {
                     <span className="file-meta">
                       {(file.size / 1024).toFixed(1)} KB · Ready to audit
                     </span>
-                  </div>
+
+                </div>
                 ) : (
                   <div className="dropzone-prompt">
                     <span className="dropzone-text-primary">
@@ -265,7 +266,8 @@ export default function App() {
                     <span className="dropzone-text-secondary">
                       Accepts .csv up to 5 MB (max 50,000 transactions)
                     </span>
-                  </div>
+
+                </div>
                 )}
               </label>
             </div>
@@ -329,6 +331,46 @@ export default function App() {
                   <strong>{auditReport.total_merchants_analyzed}</strong> merchants
                 </span>
               </div>
+              {/* Download JSON button */}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  try {
+                    const exportReport = JSON.parse(JSON.stringify(auditReport));
+                    exportReport.findings = exportReport.findings.map((f) => {
+                      if (Array.isArray(f.evidence_items)) {
+                        f.evidence_items = f.evidence_items.map((item) => {
+                          const { description: _description, ...rest } = item;
+                          return rest;
+                        });
+                      }
+                      return f;
+                    });
+                    const payload = {
+                      schema_version: "1.0",
+                      audit_report: exportReport,
+                      ...(exportReport.parse_diagnostics ? { parse_diagnostics: exportReport.parse_diagnostics } : {}),
+                    };
+                    const jsonStr = JSON.stringify(payload, null, 2);
+                    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const date = new Date().toLocaleDateString('en-CA');
+                    link.href = url;
+                    link.download = `slothaudit-audit-${date}.json`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                  } catch (e) {
+                    console.error('Download failed', e);
+                    alert('Failed to generate download. See console for details.');
+                  }
+                }}
+              >
+                Download JSON
+              </button>
               <button type="button" className="btn btn-secondary btn-sm" onClick={handleReset}>
                 ← Audit Another Statement
               </button>
@@ -351,10 +393,12 @@ export default function App() {
                 <div className="metric-header">
                   <span className="metric-label">Active Monthly Commitment</span>
                   <span className="metric-tag tag-neutral">Current</span>
+
                 </div>
                 <div className="metric-value">
                   {formatCurrency(auditReport.total_estimated_monthly_recurring, auditReport.currency)}
                   <span className="metric-unit">/mo</span>
+
                 </div>
                 <p className="metric-hint">Sum of detected active recurring subscriptions</p>
               </div>
@@ -363,10 +407,12 @@ export default function App() {
                 <div className="metric-header">
                   <span className="metric-label">Active Annual Commitment</span>
                   <span className="metric-tag tag-neutral">Annualized</span>
+
                 </div>
                 <div className="metric-value">
                   {formatCurrency(auditReport.total_estimated_annual_recurring, auditReport.currency)}
                   <span className="metric-unit">/yr</span>
+
                 </div>
                 <p className="metric-hint">Monthly charges × 12 + annual renewals</p>
               </div>
@@ -375,10 +421,12 @@ export default function App() {
                 <div className="metric-header">
                   <span className="metric-label">Hypothetical Annual Savings</span>
                   <span className="metric-tag tag-highlight">Potential</span>
+
                 </div>
                 <div className="metric-value text-highlight">
                   {formatCurrency(auditReport.potential_hypothetical_annual_savings, auditReport.currency)}
                   <span className="metric-unit">/yr</span>
+
                 </div>
                 <p className="metric-hint">
                   If duplicate or overlapping plans are consolidated. Non-binding estimate.
@@ -497,10 +545,12 @@ export default function App() {
                                 ? 'Annual'
                                 : 'Monthly'}
                             </span>
-                          </div>
+        
+                </div>
 
                           <p className="evidence-summary-text">{finding.evidence_summary}</p>
-                        </div>
+      
+                </div>
 
                         {/* Cost Block */}
                         <div className="finding-cost-block">
@@ -513,7 +563,8 @@ export default function App() {
                               <span className="cost-sub">
                                 +{formatCurrency(finding.amount_difference, auditReport.currency)}/mo
                               </span>
-                            </div>
+          
+                </div>
                           ) : !finding.is_active ? (
                             <div className="cost-inactive">
                               <span className="cost-label">Active Commitment</span>
@@ -521,7 +572,8 @@ export default function App() {
                               <span className="cost-sub">
                                 Previously {formatCurrency(finding.historical_monthly_cost, auditReport.currency)}/mo
                               </span>
-                            </div>
+          
+                </div>
                           ) : (
                             <div className="cost-active">
                               <span className="cost-label">Estimated Cost</span>
@@ -532,10 +584,13 @@ export default function App() {
                               <span className="cost-sub">
                                 {formatCurrency(finding.estimated_annual_cost, auditReport.currency)}/yr
                               </span>
-                            </div>
+          
+                </div>
                           )}
-                        </div>
-                      </div>
+      
+                </div>
+    
+                </div>
 
                       {/* Engine Finding Body */}
                       <div className="finding-body">
@@ -550,7 +605,8 @@ export default function App() {
                               +{finding.percent_increase}% increase). Linked to primary finding{' '}
                               <code>{finding.related_finding_id}</code> (zero double-counting in totals).
                             </span>
-                          </div>
+        
+                </div>
                         )}
 
                         {/* Duplicate candidate potential savings pill if applicable */}
@@ -564,7 +620,8 @@ export default function App() {
                               </strong>{' '}
                               in hypothetical savings.
                             </span>
-                          </div>
+        
+                </div>
                         )}
 
                         {/* Recommended Action + Confidence */}
@@ -586,15 +643,18 @@ export default function App() {
                                 ? '⚠ Consider Cancelling'
                                 : '🔍 Investigate Status'}
                             </span>
-                          </div>
+        
+                </div>
 
                           <div className="confidence-wrapper">
                             <span className="meta-field-label">Certainty:</span>
                             <span className="confidence-pill">
                               {Math.round(finding.confidence * 100)}% Confidence
                             </span>
-                          </div>
-                        </div>
+        
+                </div>
+      
+                </div>
 
                         {/* Caveats list */}
                         {finding.caveats && finding.caveats.length > 0 && (
@@ -605,9 +665,11 @@ export default function App() {
                                 <li key={idx}>{c}</li>
                               ))}
                             </ul>
-                          </div>
+        
+                </div>
                         )}
-                      </div>
+    
+                </div>
 
                       {/* Evidence Txn IDs Collapsible */}
                       <div className="evidence-section">
@@ -637,9 +699,11 @@ export default function App() {
                                 {txnId}
                               </code>
                             ))}
-                          </div>
+        
+                </div>
                         )}
-                      </div>
+    
+                </div>
 
                       {/* Deep-Dive Explanation Panel (/api/explain) */}
                       <div className="explanation-section">
@@ -660,7 +724,8 @@ export default function App() {
                           <div className="explanation-loading">
                             <span className="spinner spinner-sm" aria-hidden="true"></span>
                             <span>Generating evidence-grounded explanation...</span>
-                          </div>
+        
+                </div>
                         )}
 
                         {hasExplanation && (
@@ -676,7 +741,8 @@ export default function App() {
                                   ? 'Verified Deterministic Engine'
                                   : `Model: ${explanationState.data.generated_by}`}
                               </span>
-                            </div>
+          
+                </div>
 
                             <p className="explanation-plain">{explanationState.data.plain_explanation}</p>
 
@@ -684,21 +750,27 @@ export default function App() {
                               <div className="explanation-field">
                                 <span className="field-label">Action Guidance:</span>
                                 <span className="field-val">{explanationState.data.recommendation}</span>
-                              </div>
+            
+                </div>
                               <div className="explanation-field">
                                 <span className="field-label">Uncertainty Note:</span>
                                 <span className="field-val text-muted">{explanationState.data.caveat}</span>
-                              </div>
-                            </div>
+            
+                </div>
+          
+                </div>
 
                             {explanationState.error && (
                               <div className="explanation-notice">
                                 <small>{explanationState.error}</small>
-                              </div>
+            
+                </div>
                             )}
-                          </div>
+        
+                </div>
                         )}
-                      </div>
+    
+                </div>
                     </article>
                   );
                 })}
