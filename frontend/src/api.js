@@ -27,8 +27,9 @@ export async function uploadAndAuditCsv(file) {
       body: formData,
     });
   } catch (err) {
+    const targetDesc = API_BASE ? `at ${API_BASE}` : 'on http://127.0.0.1:8000';
     throw new Error(
-      `Unable to reach the SlothAudit API server (${API_BASE || 'local'}). ${err.message || ''} Please ensure the backend is running on http://127.0.0.1:8000.`
+      `Unable to reach the SlothAudit API server (${API_BASE || 'local'}). ${err.message || ''} Please ensure the backend is running and accessible ${targetDesc}.`
     );
   }
 

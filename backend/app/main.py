@@ -19,6 +19,9 @@ Design constraints:
 
 from __future__ import annotations
 
+import json
+import os
+
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -31,6 +34,51 @@ from backend.app.explanation_engine import (
     get_default_provider,
 )
 from backend.app.schemas import AuditFinding
+
+# ---------------------------------------------------------------------------
+# CORS Configuration
+# ---------------------------------------------------------------------------
+
+DEFAULT_ALLOWED_ORIGINS: list[str] = [
+    "https://slothaudit-frontend.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+]
+
+
+def get_allowed_origins() -> list[str]:
+    """Return the list of allowed CORS origins.
+
+    Reads ALLOWED_ORIGINS from the environment (comma-separated or JSON list).
+    Merges any custom origins with default production and local origins,
+    ensuring trailing slashes are trimmed.
+    """
+    raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
+    if not raw:
+        return list(DEFAULT_ALLOWED_ORIGINS)
+
+    parsed: list[str] = []
+    if raw.startswith("[") and raw.endswith("]"):
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                parsed = [str(o).strip().rstrip("/") for o in data if str(o).strip()]
+        except Exception:
+            pass
+
+    if not parsed:
+        parsed = [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+
+    origins = list(parsed)
+    for dev_origin in DEFAULT_ALLOWED_ORIGINS:
+        if dev_origin not in origins:
+            origins.append(dev_origin)
+    return origins
+
 
 # ---------------------------------------------------------------------------
 # Application instance
@@ -47,14 +95,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-    ],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
