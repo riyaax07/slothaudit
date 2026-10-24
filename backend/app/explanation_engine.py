@@ -32,9 +32,13 @@ Design principles
 from __future__ import annotations
 
 import abc
+import json
 import logging
+import os
+from pathlib import Path
 from typing import List, Literal, Optional
 
+import httpx
 from pydantic import BaseModel, Field, field_validator
 
 from backend.app.schemas import AuditFinding
@@ -170,7 +174,7 @@ class ExplanationResponse(BaseModel):
         ...,
         description=f"One uncertainty or limitation statement (max {CAVEAT_MAX_CHARS} chars).",
     )
-    generated_by: Literal["deterministic", "gemma3:1b", "gemma3:4b"] = Field(
+    generated_by: str = Field(
         ...,
         description="Provenance: which provider generated this explanation.",
     )
@@ -210,6 +214,20 @@ class ExplanationResponse(BaseModel):
                 f"caveat exceeds {CAVEAT_MAX_CHARS} chars (got {len(v)})"
             )
         return v
+
+    @field_validator("generated_by")
+    @classmethod
+    def check_generated_by(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("generated_by cannot be empty")
+        if (
+            v == "deterministic"
+            or v.startswith("google/gemma")
+            or v.startswith("gemma")
+        ):
+            return v
+        raise ValueError(f"unsupported generated_by: {v!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +355,229 @@ class OllamaProvider(ModelProvider):
             f"OllamaProvider.generate() is not yet implemented. "
             f"Install the ollama package and pull {self._model!r} first."
         )
+
+
+# ---------------------------------------------------------------------------
+# Hugging Face Hosted Gemma Provider
+# ---------------------------------------------------------------------------
+
+DEFAULT_HF_MODEL: str = "google/gemma-2-2b-it"
+DEFAULT_HF_ROUTER_URL: str = "https://router.huggingface.co/v1/chat/completions"
+DEFAULT_TIMEOUT_SECONDS: float = 12.0
+
+
+class HuggingFaceGemmaProvider(ModelProvider):
+    """Hosted Gemma explanation provider via Hugging Face Inference Providers.
+
+    Queries an instruction-tuned Gemma model (default: google/gemma-2-2b-it)
+    via Hugging Face's OpenAI-compatible router endpoint:
+    https://router.huggingface.co/v1/chat/completions
+
+    Safety and privacy guarantees:
+    - Never receives raw CSV lines, transaction narrations, transaction IDs, or finding IDs.
+    - Uses bounded timeouts with strict error handling.
+    - Treats all model output as untrusted text: strips code fences, parses JSON,
+      enforces character limits, and validates schema constraints.
+    - Never alters audit calculations, financial totals, or findings.
+    - Never prints, logs, or returns the authentication token.
+    """
+
+    def __init__(
+        self,
+        token: Optional[str] = None,
+        model: Optional[str] = None,
+        api_url: Optional[str] = None,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        self._token = (token or os.environ.get("HF_TOKEN") or "").strip()
+        self._model = (model or os.environ.get("HF_MODEL") or DEFAULT_HF_MODEL).strip()
+        self._api_url = (api_url or os.environ.get("HF_ROUTER_URL") or DEFAULT_HF_ROUTER_URL).strip()
+        self._timeout = timeout
+
+    @property
+    def provider_name(self) -> str:
+        return self._model
+
+    def _build_prompt(self, request: ExplanationRequest) -> str:
+        """Construct sanitized facts context without transaction IDs or narration."""
+        lines = [
+            f"Merchant: {request.merchant_canonical}",
+            f"Pattern type: {request.finding_type}",
+            f"Cadence: {request.cadence}",
+            f"Status: {'Active' if request.is_active else 'Inactive/Churned'}",
+            f"Suggested action: {request.recommended_action}",
+            f"Evidence summary: {request.evidence_summary}",
+        ]
+        if request.estimated_monthly_cost is not None:
+            lines.append(f"Estimated monthly cost: {request.estimated_monthly_cost:.2f}")
+        if request.estimated_annual_cost is not None:
+            lines.append(f"Estimated annual cost: {request.estimated_annual_cost:.2f}")
+        if request.previous_amount is not None and request.new_amount is not None:
+            lines.append(
+                f"Price change: from {request.previous_amount:.2f} to {request.new_amount:.2f} "
+                f"({request.percent_increase:.1f}% change)"
+            )
+        lines.append(f"Baseline observation: {request.engine_explanation}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _extract_content(data: dict) -> str:
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected JSON object response, got {type(data).__name__}")
+        choices = data.get("choices")
+        if not choices or not isinstance(choices, list):
+            raise ValueError("Response missing 'choices' list.")
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            raise ValueError("Choice item must be an object.")
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            raise ValueError("Choice missing 'message' object.")
+        content = message.get("content")
+        if not isinstance(content, str):
+            raise ValueError("Message missing 'content' string.")
+        return content
+
+    @staticmethod
+    def _parse_json(content: str) -> dict:
+        content = content.strip()
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            content = content[start : end + 1]
+        try:
+            parsed = json.loads(content)
+        except Exception as exc:
+            raise ValueError(f"Failed to parse JSON from model output: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Parsed model output is not a JSON object.")
+        return parsed
+
+    def generate(self, request: ExplanationRequest) -> dict:
+        if not self._token:
+            raise ValueError("HF_TOKEN is not configured or empty.")
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful financial assistant for a recurring payment auditor. "
+                    "Analyze the provided structured finding and write an objective, plain-language explanation.\n"
+                    "Rules:\n"
+                    "- Do NOT calculate or alter amounts, dates, or savings totals.\n"
+                    "- Do NOT use words like 'fraud', 'illegal', or 'guarantee'.\n"
+                    "- Do NOT mention transaction IDs or internal system IDs.\n"
+                    "- Keep 'plain_explanation' concise (under 450 characters).\n"
+                    "- Keep 'recommendation' to one actionable sentence matching the suggested action (under 200 characters).\n"
+                    "- Keep 'caveat' to one limitation or uncertainty sentence (under 250 characters).\n"
+                    "- Respond ONLY with a valid JSON object with exactly these keys: "
+                    '"plain_explanation", "recommendation", "caveat".'
+                ),
+            },
+            {
+                "role": "user",
+                "content": self._build_prompt(request),
+            },
+        ]
+
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 400,
+        }
+
+        try:
+            with httpx.Client(timeout=self._timeout) as client:
+                response = client.post(self._api_url, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        except Exception as exc:
+            logger.warning(
+                "HuggingFace request failed for model %r (%s)",
+                self._model,
+                type(exc).__name__,
+            )
+            raise
+
+        content = self._extract_content(data)
+        parsed = self._parse_json(content)
+
+        return {
+            "finding_id": request.finding_id,
+            "plain_explanation": str(parsed.get("plain_explanation", "")).strip(),
+            "recommendation": str(parsed.get("recommendation", "")).strip(),
+            "caveat": str(parsed.get("caveat", "")).strip(),
+            "generated_by": self.provider_name,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Environment configuration & provider factory
+# ---------------------------------------------------------------------------
+
+def _read_env_file(path: Path) -> None:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip()
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        val = val[1:-1]
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+    except Exception:
+        pass
+
+
+def load_env_file(path: Optional[Path | str] = None) -> None:
+    """Load key-value pairs from an env file into os.environ if not already set.
+
+    - Does not overwrite existing environment variables.
+    - Never prints, logs, or returns loaded secrets.
+    - Bypassed in pytest test runner unless explicitly invoked with a path.
+    """
+    if path is not None:
+        p = Path(path)
+        if p.is_file():
+            _read_env_file(p)
+        return
+
+    # In pytest runs, do not auto-load local .env secrets
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return
+
+    base = Path(__file__).resolve().parent.parent
+    candidates = [
+        base / ".env",
+        Path.cwd() / "backend" / ".env",
+        Path.cwd() / ".env",
+        base.parent / ".env",
+    ]
+    for c in candidates:
+        if c.is_file():
+            _read_env_file(c)
+            break
+
+
+def get_default_provider() -> Optional[ModelProvider]:
+    """Return the configured model provider, or None to use deterministic fallback."""
+    load_env_file()
+    token = os.environ.get("HF_TOKEN")
+    if token and token.strip():
+        return HuggingFaceGemmaProvider()
+    return None
 
 
 # ---------------------------------------------------------------------------

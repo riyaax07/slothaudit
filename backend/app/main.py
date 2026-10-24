@@ -25,7 +25,11 @@ from fastapi.responses import JSONResponse
 
 from backend.app.audit_engine import audit_transactions
 from backend.app.csv_parser import MAX_FILE_SIZE_BYTES, CSVParseError, parse_transactions
-from backend.app.explanation_engine import ExplanationResponse, generate_explanation
+from backend.app.explanation_engine import (
+    ExplanationResponse,
+    generate_explanation,
+    get_default_provider,
+)
 from backend.app.schemas import AuditFinding
 
 # ---------------------------------------------------------------------------
@@ -211,8 +215,10 @@ async def explain_finding(
     and returns a structured ExplanationResponse with plain explanation,
     recommendation, and caveats.
 
-    Uses the deterministic provider by default (or fallback if a model is unavailable).
+    Uses hosted Gemma via Hugging Face Inference Providers if HF_TOKEN is configured,
+    with automatic fallback to the deterministic provider if unavailable.
     This endpoint is fully isolated from /api/audit.
     """
-    explanation = generate_explanation(finding)
+    provider = get_default_provider()
+    explanation = generate_explanation(finding, provider=provider)
     return JSONResponse(content=explanation.model_dump(mode="json"))
